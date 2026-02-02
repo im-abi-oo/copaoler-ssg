@@ -1,41 +1,86 @@
-name: Multi-Page Compiler Workflow
+name: Independent Page Compiler
 
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build-and-zip-pages:
+  build-and-archive:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Initialize Environment & Install Core Tools
+        # نصب مستقیم پیش‌نیازها بدون نیاز به فایل package.json در مخزن
+        run: |
+          npm init -y
+          npm install react react-dom vite @vitejs/plugin-react archiver fs-extra --save-dev
 
-      - name: Compile All Pages
+      - name: Create Dynamic Vite Config
+        # ساخت فایل کانفیگ به صورت آنی برای اسکن پوشه‌ها
+        run: |
+          cat <<EOF > vite.config.mjs
+          import { defineConfig } from 'vite';
+          import react from '@vitejs/plugin-react';
+          import { resolve, join } from 'path';
+          import { readdirSync, statSync } from 'fs';
+
+          const pagesPath = resolve(process.cwd(), 'src/pages');
+          const pages = readdirSync(pagesPath).filter(f => 
+            statSync(join(pagesPath, f)).isDirectory()
+          );
+
+          const entryPoints = {};
+          pages.forEach(page => {
+            entryPoints[page] = resolve(pagesPath, page, 'index.jsx');
+          });
+
+          export default defineConfig({
+            plugins: [react()],
+            build: {
+              outDir: 'dist-pages',
+              emptyOutDir: true,
+              rollupOptions: {
+                input: entryPoints,
+                output: {
+                  entryFileNames: '[name]/[name].js',
+                  assetFileNames: '[name]/[name].[ext]',
+                  format: 'iife',
+                  name: 'PageBundle'
+                }
+              }
+            }
+          });
+          EOF
+
+      - name: Compile Pages
         run: npx vite build
 
-      - name: Zip Each Page Individually
+      - name: Advanced Zip Workflow
+        # فشرده‌سازی هر صفحه به صورت یک پکیج مجزا
         run: |
-          mkdir final-archives
+          mkdir -p final-archives
           cd dist-pages
-          for d in */; do
-            zip -r "../final-archives/${d%/}.zip" "$d"
+          for dir in */; do
+            if [ -d "$dir" ]; then
+              tag_name=\${dir%/}
+              echo "📦 Archiving Page: \$tag_name"
+              zip -r9 "../final-archives/\${tag_name}.zip" "\$dir"
+            fi
           done
           cd ..
 
-      - name: Upload All Page Zips
+      - name: Upload Compiled Pages
         uses: actions/upload-artifact@v4
         with:
-          name: compiled-pages-collection
+          name: all-pages-bundle
           path: final-archives/*.zip
-          retention-days: 7
+          retention-days: 10
