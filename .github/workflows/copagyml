@@ -1,0 +1,41 @@
+name: Multi-Page Compiler Workflow
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-zip-pages:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Compile All Pages
+        run: npx vite build
+
+      - name: Zip Each Page Individually
+        run: |
+          mkdir final-archives
+          cd dist-pages
+          for d in */; do
+            zip -r "../final-archives/${d%/}.zip" "$d"
+          done
+          cd ..
+
+      - name: Upload All Page Zips
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-pages-collection
+          path: final-archives/*.zip
+          retention-days: 7
