@@ -1,4 +1,4 @@
-name: Independent Page Compiler
+name: Stable Multi-Page Compiler
 
 on:
   push:
@@ -18,14 +18,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Initialize Environment & Install Core Tools
-        # نصب مستقیم پیش‌نیازها بدون نیاز به فایل package.json در مخزن
+      - name: Install Dependencies
         run: |
           npm init -y
-          npm install react react-dom vite @vitejs/plugin-react archiver fs-extra --save-dev
+          npm install react react-dom vite @vitejs/plugin-react --save-dev
 
-      - name: Create Dynamic Vite Config
-        # ساخت فایل کانفیگ به صورت آنی برای اسکن پوشه‌ها
+      - name: Create Production Vite Config
         run: |
           cat <<EOF > vite.config.mjs
           import { defineConfig } from 'vite';
@@ -40,7 +38,9 @@ jobs:
 
           const entryPoints = {};
           pages.forEach(page => {
-            entryPoints[page] = resolve(pagesPath, page, 'index.jsx');
+            // اطمینان از وجود فایل قبل از افزودن به لیست بیلد
+            const entryPath = resolve(pagesPath, page, 'index.jsx');
+            entryPoints[page] = entryPath;
           });
 
           export default defineConfig({
@@ -51,36 +51,40 @@ jobs:
               rollupOptions: {
                 input: entryPoints,
                 output: {
+                  // استفاده از فرمت 'es' برای پشتیبانی از چند ورودی همزمان
+                  format: 'es',
                   entryFileNames: '[name]/[name].js',
-                  assetFileNames: '[name]/[name].[ext]',
-                  format: 'iife',
-                  name: 'PageBundle'
+                  chunkFileNames: 'shared/[name]-[hash].js',
+                  assetFileNames: '[name]/[name].[ext]'
                 }
               }
             }
           });
           EOF
 
-      - name: Compile Pages
+      - name: Run Compiler
         run: npx vite build
 
-      - name: Advanced Zip Workflow
-        # فشرده‌سازی هر صفحه به صورت یک پکیج مجزا
+      - name: Professional Archiving
         run: |
           mkdir -p final-archives
           cd dist-pages
+          # پیدا کردن تمام پوشه‌هایی که بیلد شده‌اند و زیپ کردن آن‌ها
           for dir in */; do
-            if [ -d "$dir" ]; then
-              tag_name=\${dir%/}
-              echo "📦 Archiving Page: \$tag_name"
-              zip -r9 "../final-archives/\${tag_name}.zip" "\$dir"
+            if [ -d "$dir" ] && [ "$dir" != "shared/" ]; then
+              folder_name=${dir%/}
+              echo "📦 Zipping page: $folder_name"
+              # کپی کردن پوشه shared (کدهای مشترک ری‌اکت) در هر پکیج برای استقلال کامل
+              if [ -d "shared" ]; then
+                cp -r shared "$dir"
+              fi
+              zip -r9 "../final-archives/${folder_name}.zip" "$dir"
             fi
           done
           cd ..
 
-      - name: Upload Compiled Pages
+      - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: all-pages-bundle
+          name: production-pages-${{ github.run_number }}
           path: final-archives/*.zip
-          retention-days: 10
